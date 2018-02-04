@@ -2,10 +2,13 @@ package main
 
 import (
 	"bufio"
+	"compress/gzip"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
+	"os"
 	"strings"
 )
 
@@ -42,6 +45,9 @@ func main() {
 			panic(err)
 		}
 
+		// ヘッダにgzip処理が可能であることを設定する
+		request.Header.Set("Accept-Encoding", "gzip")
+
 		fmt.Println("[logger] Send a request to server")
 		err = request.Write(conn)
 		if err != nil {
@@ -57,13 +63,31 @@ func main() {
 			continue
 		}
 
-		dump, err := httputil.DumpResponse(response, true)
+		// httputil.DumpResponse()は圧縮された内容を理解してくれないので2番目のパラメータにfalseを設定
+		// これによりボディを無視するようになる
+		dump, err := httputil.DumpResponse(response, false)
 		if err != nil {
 			panic(err)
 		}
 
 		fmt.Println("[logger] Output response information")
 		fmt.Println(string(dump))
+
+		defer response.Body.Close()
+
+		// Content-Encodingヘッダに圧縮メソッドにサーバが対応していたかどうかがわかる
+		if response.Header.Get("Content-Encoding") == "gzip" {
+			fmt.Println("[logger] Accept gzip encoding")
+			reader, err := gzip.NewReader(response.Body)
+			if err != nil {
+				panic(err)
+			}
+			io.Copy(os.Stdout, reader)
+			reader.Close()
+		} else {
+			fmt.Println("[logger] Not accept gzip encoding")
+			io.Copy(os.Stdout, response.Body)
+		}
 
 		// 全部送信完了していれば終了
 		current++
